@@ -1,6 +1,6 @@
+
+[![Click here to test the tool](img/banner.png)](https://iroblivionspark.github.io/v2ray-link-parser/index.html)
 <div align="center">
-  <img alt="V2Ray Parser Banner" src="img/banner.png" />
-  <br/>
   <h1 align="center">V2Ray Link Parser To JSON</h1>
   <p align="center">A fast, online developer tool to parse various V2Ray/Xray protocol links (VMess, VLESS, SS, Trojan) into structured JSON configuration.</p>
   
