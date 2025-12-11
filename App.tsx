@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Outbound } from './services/v2ray';
+import { Outbound, V2RayConfig } from './services/v2ray';
 import { 
   ClipboardDocumentIcon, 
   ArrowPathIcon,
   ArrowDownTrayIcon,
   LanguageIcon,
-  StarIcon
+  StarIcon,
+  AdjustmentsHorizontalIcon
 } from '@heroicons/react/24/outline';
 
-const REPO_PATH = "iroblivionspark/v2ray-link-parser";
+const REPO_PATH = "iroblivionspark/v2ray-link-parser"; // Change this if your repo name is different
 
 const translations = {
   en: {
@@ -17,7 +18,9 @@ const translations = {
     pasteLabel: "Paste V2Ray Link",
     placeholder: "vmess://..., vless://..., trojan://...",
     supports: "Supports VMess, VLESS, Trojan, SS",
-    convert: "Convert to JSON",
+    convert: "Convert",
+    outboundMode: "Outbound",
+    configMode: "Config",
     configDetails: "Configuration Details",
     protocol: "Protocol",
     tag: "Tag/Remark",
@@ -27,7 +30,17 @@ const translations = {
     download: "Download JSON",
     emptyError: "Please enter a V2Ray link (vmess://, vless://, etc.)",
     parseError: "Could not parse the provided link. Please check the format.",
-    jsonPlaceholder: "// JSON output will appear here..."
+    jsonPlaceholder: "// JSON output will appear here...",
+    advSettings: "Advanced Configuration",
+    dnsLabel: "DNS Servers (comma separated)",
+    fragment: "Fragment",
+    mux: "Mux (Multiplexing)",
+    enabled: "Enabled",
+    packets: "Packets",
+    length: "Length",
+    interval: "Interval",
+    concurrency: "Concurrency",
+    xudp: "XUDP Concurrency"
   },
   fa: {
     title: "مبدل وی‌توری",
@@ -35,7 +48,9 @@ const translations = {
     pasteLabel: "لینک کانفیگ را وارد کنید",
     placeholder: "vmess://..., vless://..., trojan://...",
     supports: "پشتیبانی از VMess, VLESS, Trojan, SS",
-    convert: "تبدیل به JSON",
+    convert: "تبدیل",
+    outboundMode: "اوت‌باند",
+    configMode: "کانفیگ",
     configDetails: "جزئیات پیکربندی",
     protocol: "پروتکل",
     tag: "نام / تگ",
@@ -45,7 +60,17 @@ const translations = {
     download: "دانلود فایل",
     emptyError: "لطفاً لینک کانفیگ را وارد کنید",
     parseError: "لینک وارد شده معتبر نمی‌باشد. لطفاً فرمت را بررسی کنید.",
-    jsonPlaceholder: "// خروجی JSON اینجا نمایش داده می‌شود..."
+    jsonPlaceholder: "// خروجی JSON اینجا نمایش داده می‌شود...",
+    advSettings: "تنظیمات پیشرفته",
+    dnsLabel: "سرورهای DNS (با ویرگول جدا کنید)",
+    fragment: "فرگمنت (Fragment)",
+    mux: "مالتی‌پلکس (Mux)",
+    enabled: "فعال",
+    packets: "پکت‌ها (Packets)",
+    length: "طول (Length)",
+    interval: "بازه (Interval)",
+    concurrency: "همزمانی (Concurrency)",
+    xudp: "همزمانی XUDP"
   }
 };
 
@@ -56,6 +81,19 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<'en' | 'fa'>('en');
   const [starCount, setStarCount] = useState<number | null>(null);
+  const [configMode, setConfigMode] = useState(false);
+
+  // Advanced Settings State
+  const [dnsInput, setDnsInput] = useState("1.1.1.1,8.8.8.8");
+  
+  const [fragEnabled, setFragEnabled] = useState(false);
+  const [fragPackets, setFragPackets] = useState("tlshello");
+  const [fragLength, setFragLength] = useState("100-200");
+  const [fragInterval, setFragInterval] = useState("10-20");
+
+  const [muxEnabled, setMuxEnabled] = useState(false);
+  const [muxConcurrency, setMuxConcurrency] = useState(8);
+  const [muxXudp, setMuxXudp] = useState(16);
 
   const t = translations[lang];
   const isRTL = lang === 'fa';
@@ -72,34 +110,71 @@ function App() {
       .catch(err => console.error("Failed to fetch GitHub stars", err));
   }, []);
 
+  // Re-parse when toggling mode or changing options if input is already parsed
+  useEffect(() => {
+    if (inputText) {
+      handleParse();
+    }
+  }, [configMode, fragEnabled, fragPackets, fragLength, fragInterval, muxEnabled, muxConcurrency, muxXudp, dnsInput]);
+
   const handleParse = () => {
     setError(null);
     setJsonOutput('');
-    setParsedObj(null);
-
+    
     if (!inputText.trim()) {
-      setError(t.emptyError);
+      // Don't show error immediately on empty input unless user clicked convert
+      if (parsedObj) setParsedObj(null);
       return;
     }
 
     try {
-      // Attempt to parse line by line if multiple links are pasted, but focusing on single link for detailed view
       const lines = inputText.trim().split('\n');
       const firstLink = lines[0].trim();
       
       const outbound = Outbound.fromLink(firstLink);
       
       if (outbound) {
-        const json = outbound.toString(true);
-        setJsonOutput(json);
         setParsedObj(outbound.toJson());
+        
+        let finalOutput;
+        if (configMode) {
+          const options = {
+            dns: dnsInput,
+            fragment: fragEnabled ? {
+              enabled: true,
+              packets: fragPackets,
+              length: fragLength,
+              interval: fragInterval
+            } : undefined,
+            mux: muxEnabled ? {
+              enabled: true,
+              concurrency: muxConcurrency,
+              xudpConcurrency: muxXudp
+            } : undefined
+          };
+          finalOutput = V2RayConfig.parse(firstLink, options);
+        } else {
+          finalOutput = { outbound: outbound.toJson() };
+        }
+
+        setJsonOutput(JSON.stringify(finalOutput, null, 2));
       } else {
         setError(t.parseError);
+        setParsedObj(null);
       }
     } catch (err: any) {
       console.error(err);
       setError(`Parsing error: ${err.message}`);
+      setParsedObj(null);
     }
+  };
+
+  const manualParseClick = () => {
+      if (!inputText.trim()) {
+          setError(t.emptyError);
+          return;
+      }
+      handleParse();
   };
 
   const handleCopy = () => {
@@ -115,7 +190,9 @@ function App() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `config-${parsedObj?.tag || 'v2ray'}.json`;
+      // If config mode, name it 'config.json', else 'outbound.json' or similar
+      const prefix = configMode ? 'config' : 'outbound';
+      a.download = `${prefix}-${parsedObj?.tag || 'v2ray'}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -196,7 +273,7 @@ function App() {
               </label>
               <textarea
                 id="input"
-                rows={8}
+                rows={6}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl p-4 text-slate-300 placeholder-slate-600 focus:ring-2 focus:ring-emerald-500 focus:border-transparent outline-none transition-all font-mono text-sm resize-none"
                 placeholder={t.placeholder}
                 dir="ltr" // Links are always LTR
@@ -205,17 +282,128 @@ function App() {
               />
               
               <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <span className="text-xs text-slate-500 text-center sm:text-left rtl:sm:text-right">{t.supports}</span>
-                <button
-                  onClick={handleParse}
-                  disabled={!inputText}
-                  className="flex items-center space-x-2 rtl:space-x-reverse px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-900/20 w-full sm:w-auto justify-center"
-                >
-                  <ArrowPathIcon className="w-5 h-5" />
-                  <span>{t.convert}</span>
-                </button>
+                <span className="text-xs text-slate-500 text-center sm:text-left rtl:sm:text-right hidden sm:block">{t.supports}</span>
+                <div className="flex items-center space-x-3 rtl:space-x-reverse w-full sm:w-auto">
+                    {/* Toggle Switch */}
+                    <div className="flex items-center gap-2.5 bg-slate-900/50 p-1.5 rounded-xl border border-slate-700/50">
+                        <span 
+                            className={`text-xs font-medium cursor-pointer transition-colors select-none ${!configMode ? 'text-white' : 'text-slate-500'}`}
+                            onClick={() => setConfigMode(false)}
+                        >
+                            {t.outboundMode}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => setConfigMode(!configMode)}
+                            className={`
+                                relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none
+                                ${configMode ? 'bg-emerald-500' : 'bg-slate-600'}
+                            `}
+                            role="switch"
+                            aria-checked={configMode}
+                            dir="ltr"
+                        >
+                            <span
+                                aria-hidden="true"
+                                className={`
+                                    pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out
+                                    ${configMode ? 'translate-x-5' : 'translate-x-0'}
+                                `}
+                            />
+                        </button>
+                        <span 
+                            className={`text-xs font-medium cursor-pointer transition-colors select-none ${configMode ? 'text-white' : 'text-slate-500'}`}
+                            onClick={() => setConfigMode(true)}
+                        >
+                            {t.configMode}
+                        </span>
+                    </div>
+
+                    <button
+                    onClick={manualParseClick}
+                    disabled={!inputText}
+                    className="flex-1 sm:flex-none flex items-center space-x-2 rtl:space-x-reverse px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-emerald-900/20 justify-center min-w-[120px]"
+                    >
+                    <ArrowPathIcon className="w-5 h-5" />
+                    <span>{t.convert}</span>
+                    </button>
+                </div>
               </div>
             </div>
+
+            {/* Advanced Settings Panel - Only in Config Mode */}
+            {configMode && (
+              <div className="bg-slate-800/30 rounded-xl p-6 border border-slate-700/50 space-y-5 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center space-x-2 rtl:space-x-reverse text-slate-400 border-b border-slate-700/50 pb-2">
+                    <AdjustmentsHorizontalIcon className="w-5 h-5" />
+                    <h3 className="text-sm font-semibold uppercase tracking-wider">{t.advSettings}</h3>
+                </div>
+
+                {/* DNS */}
+                <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5">{t.dnsLabel}</label>
+                    <input 
+                        type="text" 
+                        value={dnsInput} 
+                        onChange={(e) => setDnsInput(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:ring-1 focus:ring-emerald-500 outline-none font-mono"
+                        dir="ltr"
+                    />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Fragment */}
+                    <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-700/30">
+                         <div className="flex items-center justify-between mb-3">
+                             <span className="text-sm font-medium text-slate-300">{t.fragment}</span>
+                             <label className="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" checked={fragEnabled} onChange={(e) => setFragEnabled(e.target.checked)} className="sr-only peer" />
+                                <div className="relative w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                            </label>
+                         </div>
+                         <div className={`space-y-3 transition-opacity duration-200 ${fragEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                            <div>
+                                <label className="block text-[10px] uppercase text-slate-500 mb-1">{t.packets}</label>
+                                <input type="text" value={fragPackets} onChange={(e) => setFragPackets(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" dir="ltr" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="block text-[10px] uppercase text-slate-500 mb-1">{t.length}</label>
+                                    <input type="text" value={fragLength} onChange={(e) => setFragLength(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" dir="ltr" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] uppercase text-slate-500 mb-1">{t.interval}</label>
+                                    <input type="text" value={fragInterval} onChange={(e) => setFragInterval(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" dir="ltr" />
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+
+                    {/* Mux */}
+                    <div className="bg-slate-900/40 p-4 rounded-lg border border-slate-700/30">
+                         <div className="flex items-center justify-between mb-3">
+                             <span className="text-sm font-medium text-slate-300">{t.mux}</span>
+                             <label className="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" checked={muxEnabled} onChange={(e) => setMuxEnabled(e.target.checked)} className="sr-only peer" />
+                                <div className="relative w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                            </label>
+                         </div>
+                         <div className={`space-y-3 transition-opacity duration-200 ${muxEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="block text-[10px] uppercase text-slate-500 mb-1">{t.concurrency}</label>
+                                    <input type="number" value={muxConcurrency} onChange={(e) => setMuxConcurrency(Number(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" dir="ltr" />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] uppercase text-slate-500 mb-1">{t.xudp}</label>
+                                    <input type="number" value={muxXudp} onChange={(e) => setMuxXudp(Number(e.target.value))} className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" dir="ltr" />
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+                </div>
+              </div>
+            )}
 
             {/* Parsing Stats / Info Card */}
             {parsedObj && (
