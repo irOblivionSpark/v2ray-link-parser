@@ -337,6 +337,7 @@ export class SockoptStreamSettings extends CommonClass {
         public tcpMptcp = false,
         public penetrate = false,
         public addressPortStrategy = Address_Port_Strategy.NONE,
+        public fragment: any = undefined,
     ) {
         super();
     }
@@ -349,7 +350,8 @@ export class SockoptStreamSettings extends CommonClass {
             json.tcpKeepAliveInterval,
             json.tcpMptcp,
             json.penetrate,
-            json.addressPortStrategy
+            json.addressPortStrategy,
+            json.fragment
         );
     }
 
@@ -360,7 +362,8 @@ export class SockoptStreamSettings extends CommonClass {
             tcpKeepAliveInterval: this.tcpKeepAliveInterval,
             tcpMptcp: this.tcpMptcp,
             penetrate: this.penetrate,
-            addressPortStrategy: this.addressPortStrategy
+            addressPortStrategy: this.addressPortStrategy,
+            fragment: this.fragment
         };
     }
 }
@@ -595,15 +598,12 @@ export class VmessSettings extends OutboundSettings {
     }
 
     toJson() {
+        // Return flat structure for Outbound Mode
         return {
-            vnext: [{
-                address: this.address,
-                port: this.port,
-                users: [{
-                    id: this.id,
-                    security: this.security
-                }]
-            }]
+            address: this.address,
+            port: this.port,
+            id: this.id,
+            security: this.security
         };
     }
 }
@@ -620,17 +620,22 @@ export class VLESSSettings extends OutboundSettings {
     }
 
     static fromJson(json: any = {}) {
-        if (ObjectUtil.isEmpty(json.address) || ObjectUtil.isEmpty(json.port)) return new VLESSSettings();
-        return new VLESSSettings(
-            json.address,
-            json.port,
-            json.id,
-            json.flow,
-            json.encryption
-        );
+        if (!ObjectUtil.isArrEmpty(json.vnext)) {
+            const v = json.vnext[0] || {};
+            const u = ObjectUtil.isArrEmpty(v.users) ? {} : v.users[0];
+            return new VLESSSettings(
+                v.address,
+                v.port,
+                u.id,
+                u.flow,
+                u.encryption
+            );
+        }
+        return new VLESSSettings();
     }
 
     toJson() {
+        // Return flat structure for Outbound Mode
         return {
             address: this.address,
             port: this.port,
@@ -1094,5 +1099,120 @@ export class Outbound extends CommonClass {
         }
 
         return new Outbound(remark, protocol, settings, stream);
+    }
+}
+
+export class V2RayConfig {
+    static parse(link: string, options: any = {}) {
+        const l = link.trim();
+        const lowerLink = l.toLowerCase();
+        if (lowerLink.startsWith('vmess://')) return this.parseVmess(l, options);
+        if (lowerLink.startsWith('vless://')) return this.parseVless(l, options);
+        if (lowerLink.startsWith('trojan://')) return this.parseTrojan(l, options);
+        if (lowerLink.startsWith('ss://')) return this.parseShadowsocks(l, options);
+        throw new Error("Unsupported protocol or invalid link");
+    }
+
+    private static baseConfig(proxyOutbound: any, options: any = {}) {
+        // Enforce Tag "Proxy"
+        proxyOutbound.tag = "Proxy";
+
+        // Apply Mux settings if enabled
+        if (options.mux?.enabled) {
+            proxyOutbound.mux = {
+                enabled: true,
+                concurrency: Number(options.mux.concurrency) || 8,
+                xudpConcurrency: Number(options.mux.xudpConcurrency) || 16,
+                xudpProxyUDP443: "reject"
+            };
+        }
+
+        // Apply Fragment settings if enabled
+        if (options.fragment?.enabled) {
+            if (!proxyOutbound.streamSettings) proxyOutbound.streamSettings = {};
+            if (!proxyOutbound.streamSettings.sockopt) proxyOutbound.streamSettings.sockopt = {};
+            
+            proxyOutbound.streamSettings.sockopt.fragment = {
+                packets: options.fragment.packets || "tlshello",
+                length: options.fragment.length || "100-200",
+                interval: options.fragment.interval || "10-20"
+            };
+            // Usually dialerProxy is required to activate fragment in core, often pointing to itself or 'fragment'
+            // But strict config often just puts the object in sockopt. 
+            // We follow the structure provided in prompt: "when user enables it, ask for fragment values"
+        }
+
+        return {
+            log: { loglevel: "warning" },
+            dns: {
+                servers: options.dns ? options.dns.split(',') : ["1.1.1.1", "8.8.8.8"]
+            },
+            inbounds: [
+                { port: 10809, protocol: "http", settings: {}, tag: "http" },
+                { port: 10808, protocol: "socks", settings: { udp: true }, tag: "socks" }
+            ],
+            outbounds: [
+                proxyOutbound,
+                { protocol: "freedom", tag: "Direct" },
+                { protocol: "blackhole", tag: "Reject" }
+            ],
+            routing: {
+                domainStrategy: "AsIs",
+                rules: []
+            }
+        };
+    }
+
+    static parseVmess(link: string, options: any = {}) {
+        const ob = Outbound.fromLink(link);
+        if (!ob) throw new Error("Invalid VMess link");
+        
+        const json = ob.toJson();
+        // Transform flat settings to vnext structure for Config Mode
+        json.settings = {
+            vnext: [{
+                address: json.settings.address,
+                port: json.settings.port,
+                users: [{
+                    id: json.settings.id,
+                    security: json.settings.security
+                }]
+            }]
+        };
+
+        return this.baseConfig(json, options);
+    }
+
+    static parseVless(link: string, options: any = {}) {
+        const ob = Outbound.fromLink(link);
+        if (!ob) throw new Error("Invalid VLESS link");
+        
+        const json = ob.toJson();
+        // Transform flat settings to vnext structure for Config Mode
+        json.settings = {
+            vnext: [{
+                address: json.settings.address,
+                port: json.settings.port,
+                users: [{
+                    id: json.settings.id,
+                    flow: json.settings.flow,
+                    encryption: json.settings.encryption
+                }]
+            }]
+        };
+
+        return this.baseConfig(json, options);
+    }
+
+    static parseTrojan(link: string, options: any = {}) {
+        const ob = Outbound.fromLink(link);
+        if (!ob) throw new Error("Invalid Trojan link");
+        return this.baseConfig(ob.toJson(), options);
+    }
+
+    static parseShadowsocks(link: string, options: any = {}) {
+        const ob = Outbound.fromLink(link);
+        if (!ob) throw new Error("Invalid Shadowsocks link");
+        return this.baseConfig(ob.toJson(), options);
     }
 }
