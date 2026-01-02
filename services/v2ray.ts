@@ -983,20 +983,20 @@ export class Outbound extends CommonClass {
             return null;
         }
 
-        let type = url.searchParams.get('type') ?? 'tcp';
-        let security = url.searchParams.get('security') ?? 'none';
+        let type = url.searchParams.get('type') || 'tcp';
+        let security = url.searchParams.get('security') || 'none';
         let stream = new StreamSettings(type, security);
 
-        let headerType = url.searchParams.get('headerType') ?? undefined;
-        let host = url.searchParams.get('host') ?? undefined;
-        let path = url.searchParams.get('path') ?? undefined;
-        let mode = url.searchParams.get('mode') ?? undefined;
+        let headerType = url.searchParams.get('headerType') || 'none';
+        let host = url.searchParams.get('host') || undefined;
+        let path = url.searchParams.get('path') || undefined;
+        let mode = url.searchParams.get('mode') || undefined;
 
         if (type === 'tcp' || type === 'none') {
-            stream.tcp = new TcpStreamSettings(headerType ?? 'none', host, path);
+            stream.tcp = new TcpStreamSettings(headerType, host, path);
         } else if (type === 'kcp') {
             stream.kcp = new KcpStreamSettings();
-            stream.kcp.type = headerType ?? 'none';
+            stream.kcp.type = headerType;
             stream.kcp.seed = path || '';
         } else if (type === 'ws') {
             stream.ws = new WsStreamSettings(path, host);
